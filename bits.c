@@ -603,20 +603,16 @@ int bitCount(int x)
  */
 int bitReverse(int x)
 {
-  unsigned u = x;
+  int A = 0xFF | (0xFF << 8);   // 0x0000FFFF
+  int B = A ^ (A << 8);         // 0x00FF00FF
+  int C = B ^ (B << 4);         // 0x0F0F0F0F
+  int D = C ^ (C << 2);         // 0x33333333
+  int E = D ^ (D << 1);         // 0x55555555
 
-  unsigned m4 = 0x0F | (0x0F << 8);
-  m4 = m4 | (m4 << 16);              // 0x0F0F0F0F
-  unsigned R = m4 ^ (m4 << 1);       // 0x11111111
-  unsigned t = R << 1;               // 0x22222222
-  unsigned m2 = R + t;               // 0x33333333
-  unsigned m1 = m2 + t;              // 0x55555555
-  unsigned m8 = 0xFF | (0xFF << 16); // 0x00FF00FF
-
-  u = ((u >> 1) & m1) | ((u & m1) << 1);
-  u = ((u >> 2) & m2) | ((u & m2) << 2);
-  u = ((u >> 4) & m4) | ((u & m4) << 4);
-  u = ((u >> 8) & m8) | ((u & m8) << 8);
-  u = (u >> 16) | (u << 16);
-  return (int)u;
+  x = ((x >> 1) & E) | ((x & E) << 1);
+  x = ((x >> 2) & D) | ((x & D) << 2);
+  x = ((x >> 4) & C) | ((x & C) << 4);
+  x = ((x >> 8) & B) | ((x & B) << 8);
+  x = ((x >> 16) & A) | (x << 16);
+  return x;
 }
