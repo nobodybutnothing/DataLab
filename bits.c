@@ -217,8 +217,8 @@ int logicalShift(int x, int n)
  */
 int swapNibblePairs(int x)
 {
-  int a = 0x0F << 8 + 0x0F;
-  int b = a + a << 16;
+  int b = 0x0F | (0x0F << 8);
+  b = b | (b << 16);
   return ((x & b) << 4) | ((x >> 4) & b);
 }
 
@@ -331,20 +331,24 @@ int midpointTowardFirst(int x, int y)
  */
 int isBetweenEitherOrder(int x, int a, int b)
 {
-  unsigned min = 1u << 31;
-  unsigned ux = (unsigned)x ^ min;
-  unsigned ua = (unsigned)a ^ min;
-  unsigned ub = (unsigned)b ^ min;
-  unsigned nux = ~ux, nua = ~ua, nub = ~ub;
+  int sx = x >> 31, sa = a >> 31, sb = b >> 31;
+  int nsx = ~sx, nsa = ~sa, nsb = ~sb;
+  int nx = ~x, na = ~a, nb = ~b;
 
-  unsigned ax = ((nua & ux) | ((nua | ux) & (ua + nux + 1))) >> 31;
-  unsigned xb = ((nux & ub) | ((nux | ub) & (ux + nub + 1))) >> 31;
-  unsigned bx = ((nub & ux) | ((nub | ux) & (ub + nux + 1))) >> 31;
-  unsigned xa = ((nux & ua) | ((nux | ua) & (ux + nua + 1))) >> 31;
+  int d1 = sa ^ sx, t1 = sa & nsx, h1 = (a + nx) >> 31; // a<=x
+  int le_ax = (d1 & t1) | (~d1 & h1);
 
-  unsigned in = (ax & xb) | (bx & xa);
-  unsigned eq = (!(a ^ x)) | (!(b ^ x));
-  return (int)((in & 1u) | eq);
+  int d2 = sx ^ sb, t2 = sx & nsb, h2 = (x + nb) >> 31; // x<=b
+  int le_xb = (d2 & t2) | (~d2 & h2);
+
+  int d3 = sb ^ sx, t3 = sb & nsx, h3 = (b + nx) >> 31; // b<=x
+  int le_bx = (d3 & t3) | (~d3 & h3);
+
+  int d4 = sx ^ sa, t4 = sx & nsa, h4 = (x + na) >> 31; // x<=a
+  int le_xa = (d4 & t4) | (~d4 & h4);
+
+  int in = (le_ax & le_xb) | (le_bx & le_xa);
+  return in & 1;
 }
 
 // P13
@@ -409,60 +413,51 @@ int classifyAdd3(int x, int y, int z)
  */
 unsigned floatScaleThreeHalves(unsigned uf)
 {
-  unsigned sign = uf & (1u << 31);
-  unsigned exp = (uf >> 23) & 0xFFu;
-  unsigned frac = uf & ((1u << 23) - 1);
+  unsigned sign = uf & (1 << 31);
+  unsigned exp = (uf >> 23) & 0xFF;
+  unsigned frac = uf & ((1 << 23) - 1);
 
-  if (exp == 0xFFu)
-  {
-    return uf;
-  }
-  if (exp == 0u)
-  {
-    if (frac == 0u)
-    {
-      return uf;
-    }
-    unsigned m3 = (frac << 1) + frac;
-    unsigned n = m3 >> 1;
-    if ((m3 & 1u) && (n & 1u))
-      n = n + 1;
-    if (n < (1u << 23))
-      return sign | n;
-    return sign | (1u << 23) | (n & ((1u << 23) - 1));
+  if (exp == 0xFF)
+    return uf; // Inf / NaN
+
+  if (exp == 0)
+  { // 0 / 次正规数
+    if (frac == 0)
+      return uf; // ±0
+    unsigned m3 = frac + (frac << 1);
+    unsigned N = m3 >> 1;
+    if ((m3 & 1) && (N & 1))
+      N++; // 就近取偶
+    if (N < (1 << 23))
+      return sign | N;
+    return sign | (1 << 23) | (N & ((1 << 23) - 1));
   }
 
-  unsigned m = frac | (1u << 23);
+  unsigned m = frac | (1 << 23);
   unsigned m3 = m + (m << 1);
-  unsigned n, e;
-
-  if (m3 < (1u << 25))
+  unsigned N, E;
+  if (m3 < (1 << 25))
   {
-    n = m3 >> 1;
-    if ((m3 & 1u) && (n & 1u))
-      n = n + 1;
-    e = exp;
-    if (n >> 24)
+    N = m3 >> 1;
+    if ((m3 & 1) && (N & 1))
+      N++;
+    E = exp;
+    if (N >> 24)
     {
-      n = n >> 1;
-      e = e + 1;
-    }
-    else
-    {
-      n = m3 >> 2;
-      if ((m3 >> 1) & 1u && (m3 & 1u || n & 1u))
-      {
-        n = n + 1;
-      }
-      e = exp + 1;
+      N >>= 1;
+      E++;
     }
   }
-
-  if (e >= 255u)
+  else
   {
-    return sign | (0xFFu << 23);
+    N = m3 >> 2;
+    if (((m3 >> 1) & 1) && ((m3 & 1) || (N & 1)))
+      N++;
+    E = exp + 1;
   }
-  return sign | (e << 23) | (n & ((1u << 23) - 1));
+  if (E >= 0xFF)
+    return sign | (0xFF << 23);
+  return sign | (E << 23) | (N & ((1 << 23) - 1));
 }
 
 // P16
@@ -479,24 +474,23 @@ unsigned floatScaleThreeHalves(unsigned uf)
  */
 unsigned floatRoundEven(unsigned uf)
 {
-  unsigned sign = uf & (1u << 31);
-  unsigned exp = (uf >> 23) & 0xFFu;
-  unsigned frac = uf & (1u << 23 - 1);
+  unsigned sign = uf & (1 << 31);
+  unsigned exp = (uf >> 23) & 0xFF;
+  unsigned frac = uf & ((1 << 23) - 1);
 
-  if (exp == 0xFFu)
+  if (exp == 0xFF)
     return uf;
-  if (exp >= 150u)
+  if (exp >= 150)
     return uf;
-  if (exp < 126u)
+  if (exp < 126)
     return sign;
 
-  unsigned M = frac | (1u << 23);
-  unsigned k = 150u - exp;
-
-  unsigned R = (M + ((1u << (k - 1)) - 1u) + ((M >> k) & 1u)) >> k;
-
-  if (R == 0u)
+  unsigned M = frac | (1 << 23);
+  unsigned k = 150 - exp;
+  unsigned R = (M + ((1 << (k - 1)) - 1) + ((M >> k) & 1)) >> k;
+  if (R == 0)
     return sign;
+
   unsigned t = R, p = 0;
   if (t >> 16)
   {
@@ -523,8 +517,8 @@ unsigned floatRoundEven(unsigned uf)
     p += 1;
   }
 
-  unsigned e = 127u + p;
-  unsigned m = (R << (23u - p)) & (1u << 23 - 1);
+  unsigned e = 127 + p;
+  unsigned m = (R << (23 - p)) & ((1 << 23) - 1);
   return sign | (e << 23) | m;
 }
 
@@ -541,11 +535,9 @@ unsigned floatRoundEven(unsigned uf)
 unsigned float_i2f(int x)
 {
   if (x == 0)
-    return 0u;
-
-  unsigned ux = (unsigned)x;
-  unsigned sign = ux & (1u << 31);
-  unsigned ax = sign ? (~ux + 1) : ux;
+    return 0;
+  unsigned sign = x & (1 << 31);
+  unsigned ax = (x < 0) ? (~x + 1) : x;
 
   int p = 0;
   unsigned t = ax;
@@ -555,25 +547,24 @@ unsigned float_i2f(int x)
     p++;
   }
 
+  unsigned top = 1 << 23;
+  unsigned fmask = top - 1;
+
   if (p <= 23)
   {
     unsigned m = ax << (23 - p);
-    return sign | ((unsigned)(127 + p) << 23) | (m & (1u << 23 - 1));
+    return sign | ((127 + p) << 23) | (m & fmask);
   }
 
   int shift = p - 23;
-  unsigned N = ax >> shift;
-  unsigned guard = (ax >> (shift - 1)) & 1u;
-  unsigned sticky = (ax & ((1u << (shift - 1)) - 1u)) != 0u;
-  if (guard && (sticky || (N & 1u)))
-    N++;
+  unsigned N = (ax + ((1 << (shift - 1)) - 1) + ((ax >> shift) & 1)) >> shift;
   if (N >> 24)
   {
     N >>= 1;
     p++;
   }
 
-  return sign | ((unsigned)(127 + p) << 23) | (N & (1u << 23 - 1));
+  return sign | ((127 + p) << 23) | (N & fmask);
 }
 
 // P18
